@@ -3,7 +3,7 @@
 import os
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
@@ -21,12 +21,9 @@ def ask_llm(question: str) -> str:
 		raise ValueError("Set LITELLM_MODEL in .env.")
 
 	base_url = proxy_root if proxy_root.endswith("/v1") else f"{proxy_root}/v1"
-	client = OpenAI(api_key=api_key, base_url=base_url)
-	response = client.chat.completions.create(
-		model=model,
-		messages=[{"role": "user", "content": question}],
-	)
-	answer = response.choices[0].message.content
-	if not answer:
+	chat_model = ChatOpenAI(model=model, api_key=api_key, base_url=base_url)
+	response = chat_model.invoke(question)
+	answer = response.content
+	if not isinstance(answer, str) or not answer.strip():
 		raise ValueError("The model returned an empty response.")
 	return answer.strip()
