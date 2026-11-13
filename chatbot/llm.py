@@ -3,12 +3,13 @@
 import os
 
 from dotenv import load_dotenv
+from langchain_core.messages import BaseMessage
 from langchain_openai import ChatOpenAI
 
 load_dotenv()
 
 
-def ask_llm(question: str) -> str:
+def ask_llm(messages: list[BaseMessage]) -> str:
 	api_key = os.getenv("LITELLM_API_KEY", "").strip()
 	proxy_root = os.getenv("LITELLM_BASE_URL", "").strip().rstrip("/")
 	model = os.getenv("LITELLM_MODEL", "").strip()
@@ -22,7 +23,8 @@ def ask_llm(question: str) -> str:
 
 	base_url = proxy_root if proxy_root.endswith("/v1") else f"{proxy_root}/v1"
 	chat_model = ChatOpenAI(model=model, api_key=api_key, base_url=base_url)
-	response = chat_model.invoke(question)
+	# Send the full history so the model can use previous turns.
+	response = chat_model.invoke(messages)
 	answer = response.content
 	if not isinstance(answer, str) or not answer.strip():
 		raise ValueError("The model returned an empty response.")
