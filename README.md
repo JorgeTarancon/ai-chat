@@ -1,4 +1,4 @@
-# ai-chat
+# AI-chat
 
 ## Setup
 
@@ -19,6 +19,7 @@ ai-chat/
 |-- chatbot/
 |   |-- __init__.py
 |   |-- __main__.py  # Enables python -m chatbot
+|   |-- api.py       # FastAPI application
 |   |-- cli.py       # Terminal interface
 |   `-- llm.py       # LangChain integration with LiteLLM
 |-- requirements.txt
@@ -28,8 +29,16 @@ ai-chat/
 
 The chatbot keeps the conversation history in memory while it is running. Type `/exit` or `/quit` to end the chat; the history is discarded when the process exits.
 
-Run the chatbot from the project directory:
+Start the API in one terminal:
+
+```
+python -m uvicorn chatbot.api:app --reload
+```
+
+Then start the chat client in another terminal:
 
 ```
 python -m chatbot
 ```
+
+The API is available at `http://127.0.0.1:8000`; its interactive docs are at `/docs`.
