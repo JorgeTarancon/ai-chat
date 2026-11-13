@@ -26,7 +26,7 @@ ai-chat/
 `-- README.md
 ```
 
-The chatbot accepts one question in the terminal and prints one LLM response. 
+The chatbot keeps the conversation history in memory while it is running. Type `/exit` or `/quit` to end the chat; the history is discarded when the process exits.
 
 Run the chatbot from the project directory:
 
