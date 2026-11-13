@@ -2,7 +2,7 @@
 
 ## Setup
 
-Requires Python 3.9 or later.
+Requires Python 3.10 or later.
 
 From the project directory, install the dependencies:
 
@@ -20,7 +20,7 @@ ai-chat/
 |   |-- __init__.py
 |   |-- __main__.py  # Enables python -m chatbot
 |   |-- cli.py       # Terminal interface
-|   `-- llm.py       # LiteLLM API integration
+|   `-- llm.py       # LangChain integration with LiteLLM
 |-- requirements.txt
 |-- .env.example
 `-- README.md
