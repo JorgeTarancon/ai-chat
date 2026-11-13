@@ -21,6 +21,7 @@ ai-chat/
 |   |-- __main__.py  # Enables python -m chatbot
 |   |-- api.py       # FastAPI application
 |   |-- cli.py       # Terminal interface
+|   |-- web.py       # Streamlit web interface
 |   `-- llm.py       # LangChain integration with LiteLLM
 |-- requirements.txt
 |-- .env.example
@@ -42,3 +43,9 @@ python -m chatbot
 ```
 
 The API is available at `http://127.0.0.1:8000`; its interactive docs are at `/docs`.
+
+To use the Streamlit web interface, start it in a separate terminal:
+
+```
+python -m streamlit run chatbot/web.py
+```
