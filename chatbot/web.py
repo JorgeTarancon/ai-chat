@@ -34,6 +34,21 @@ st.markdown(
 	[data-testid="stAppViewContainer"] h1,
 	[data-testid="stAppViewContainer"] h1 * { color: var(--ink) !important; }
 	[data-testid="stHeader"] { background: transparent; }
+	button[aria-controls="stSidebar"][aria-expanded="false"] {
+		color: #fff !important;
+		background: var(--forest) !important;
+		border: 1px solid #416458 !important;
+		border-radius: 6px !important;
+	}
+	button[aria-controls="stSidebar"][aria-expanded="false"] * {
+		color: #fff !important;
+	}
+	button[aria-controls="stSidebar"][aria-expanded="false"] svg {
+		fill: #fff !important;
+	}
+	button[aria-controls="stSidebar"][aria-expanded="false"]:hover {
+		background: #2b4c42 !important;
+	}
 	[data-testid="stBottom"], [data-testid="stBottomBlockContainer"] {
 		background: var(--paper) !important;
 	}
@@ -67,8 +82,30 @@ st.markdown(
 		border-radius: 10px;
 		padding: 0.85rem 1rem;
 		margin: 0.65rem 0;
+		color: var(--ink);
 	}
-	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p { line-height: 1.65; }
+	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+		background: var(--forest);
+		border-color: var(--forest);
+		color: #fff;
+	}
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p {
+		color: var(--ink) !important;
+		line-height: 1.65;
+	}
+	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] p {
+		color: #fff !important;
+	}
+	[data-testid="stChatMessage"] [data-testid="stAlert"],
+	[data-testid="stChatMessage"] [role="alert"] {
+		background: #fde8e7 !important;
+		border-color: #e4a29e !important;
+		color: #681f1c !important;
+	}
+	[data-testid="stChatMessage"] [data-testid="stAlert"] *,
+	[data-testid="stChatMessage"] [role="alert"] * {
+		color: #681f1c !important;
+	}
 	[data-testid="stChatInput"] > div {
 		background: #fff !important;
 		border: 1px solid #bdc9bf !important;
