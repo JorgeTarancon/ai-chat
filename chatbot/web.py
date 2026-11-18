@@ -100,11 +100,32 @@ st.markdown(
 		border-color: var(--forest);
 		color: #fff;
 	}
-	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p {
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p,
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li,
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] ol,
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] ul,
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] span,
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] strong,
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] em {
 		color: var(--ink) !important;
 		line-height: 1.65;
 	}
-	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] p {
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li::marker {
+		color: var(--ink) !important;
+	}
+	/* Keep streamed text fully opaque instead of Streamlit's fade-in while it arrives. */
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"],
+	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] * {
+		opacity: 1 !important;
+	}
+	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] p,
+	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] li,
+	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] span,
+	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] strong,
+	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] em {
+		color: #fff !important;
+	}
+	[data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) [data-testid="stMarkdownContainer"] li::marker {
 		color: #fff !important;
 	}
 	[data-testid="stChatMessage"] [data-testid="stAlert"],
@@ -152,18 +173,22 @@ def get_error_detail(error: httpx.HTTPStatusError) -> str:
 	return error.response.text or str(error)
 
 
-def request_answer(messages: list[dict]) -> str:
-	response = httpx.post(
-		f"{API_URL}/chat",
+def stream_answer(messages: list[dict]):
+	with httpx.stream(
+		"POST",
+		f"{API_URL}/chat/stream",
 		json={"messages": messages},
 		timeout=120,
-	)
-	response.raise_for_status()
-	payload = response.json()
-	answer = payload.get("answer") if isinstance(payload, dict) else None
-	if not isinstance(answer, str) or not answer.strip():
-		raise ValueError("The chatbot API returned an invalid response.")
-	return answer.strip()
+	) as response:
+		try:
+			response.raise_for_status()
+		except httpx.HTTPStatusError as error:
+			# Buffer the body so get_error_detail can read the JSON detail.
+			error.response.read()
+			raise
+		for chunk in response.iter_text():
+			if chunk:
+				yield chunk
 
 
 if "messages" not in st.session_state:
@@ -248,7 +273,7 @@ if submission := st.chat_input(
 		with st.chat_message("assistant"):
 			with st.spinner("Thinking..."):
 				try:
-					answer = request_answer(st.session_state.messages)
+					answer = st.write_stream(stream_answer(st.session_state.messages))
 				except httpx.HTTPStatusError as error:
 					st.session_state.messages.pop()
 					st.error(f"API error: {get_error_detail(error)}")
@@ -256,5 +281,9 @@ if submission := st.chat_input(
 					st.session_state.messages.pop()
 					st.error(f"Could not reach the chatbot API: {error}")
 				else:
-					st.session_state.messages.append({"role": "assistant", "content": answer})
-					st.markdown(answer)
+					answer = answer.strip() if isinstance(answer, str) else "".join(answer).strip()
+					if answer:
+						st.session_state.messages.append({"role": "assistant", "content": answer})
+					else:
+						st.session_state.messages.pop()
+						st.error("The chatbot API returned an invalid response.")
