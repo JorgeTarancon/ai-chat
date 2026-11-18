@@ -1,15 +1,26 @@
 """Streamlit chat interface backed by the local FastAPI service."""
 
+import base64
 import os
 
 import httpx
 import streamlit as st
 from dotenv import load_dotenv
 
+from chatbot.config import MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE
+
 load_dotenv()
 
 API_URL = os.getenv("CHATBOT_API_URL", "http://127.0.0.1:8000").rstrip("/")
 MODEL = os.getenv("LITELLM_MODEL", "Model not configured")
+IMAGE_TYPES = ["png", "jpg", "jpeg", "webp", "gif"]
+MIME_BY_EXTENSION = {
+	"png": "image/png",
+	"jpg": "image/jpeg",
+	"jpeg": "image/jpeg",
+	"webp": "image/webp",
+	"gif": "image/gif",
+}
 
 st.set_page_config(page_title="AI Chat", page_icon=":material/forum:", layout="wide")
 st.markdown(
@@ -141,7 +152,7 @@ def get_error_detail(error: httpx.HTTPStatusError) -> str:
 	return error.response.text or str(error)
 
 
-def request_answer(messages: list[dict[str, str]]) -> str:
+def request_answer(messages: list[dict]) -> str:
 	response = httpx.post(
 		f"{API_URL}/chat",
 		json={"messages": messages},
@@ -188,16 +199,51 @@ with st.sidebar:
 st.markdown("<div class='eyebrow'>CONVERSATION / 01</div>", unsafe_allow_html=True)
 st.title("AI Chat")
 
-for message in st.session_state.messages:
-	with st.chat_message(message["role"]):
+def render_message(message: dict) -> None:
+	for image in message.get("images", []):
+		st.image(base64.b64decode(image["data"]), width=240)
+	if message["content"]:
 		st.markdown(message["content"])
 
-if prompt := st.chat_input("Write a message..."):
-	new_message = {"role": "user", "content": prompt.strip()}
-	if new_message["content"]:
+
+def encode_images(files: list) -> list[dict[str, str]]:
+	images = []
+	for file in files:
+		extension = file.name.rsplit(".", 1)[-1].lower()
+		mime_type = MIME_BY_EXTENSION.get(extension)
+		if mime_type is None:
+			raise ValueError(f"Unsupported image type: {file.name}")
+		raw = file.getvalue()
+		if len(raw) > MAX_IMAGE_BYTES:
+			raise ValueError(f"{file.name} exceeds the {MAX_IMAGE_BYTES // (1024 * 1024)} MB limit.")
+		images.append({"data": base64.b64encode(raw).decode("ascii"), "mime_type": mime_type})
+	return images
+
+
+for message in st.session_state.messages:
+	with st.chat_message(message["role"]):
+		render_message(message)
+
+if submission := st.chat_input(
+	"Write a message or attach images...",
+	accept_file="multiple",
+	file_type=IMAGE_TYPES,
+):
+	text = submission.text.strip()
+	files = list(submission.files)
+	new_message = None
+	if len(files) > MAX_IMAGES_PER_MESSAGE:
+		st.error(f"You can attach up to {MAX_IMAGES_PER_MESSAGE} images per message.")
+	elif text or files:
+		try:
+			new_message = {"role": "user", "content": text, "images": encode_images(files)}
+		except ValueError as error:
+			st.error(str(error))
+
+	if new_message:
 		st.session_state.messages.append(new_message)
 		with st.chat_message("user"):
-			st.markdown(new_message["content"])
+			render_message(new_message)
 
 		with st.chat_message("assistant"):
 			with st.spinner("Thinking..."):
