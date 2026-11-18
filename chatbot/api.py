@@ -5,11 +5,12 @@ import binascii
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config import MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE
-from .llm import ask_llm
+from .llm import ask_llm, stream_llm
 
 app = FastAPI(title="AI Chat API")
 
@@ -55,13 +56,7 @@ class ChatResponse(BaseModel):
 	answer: str
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
-	return {"status": "ok"}
-
-
-@app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+def _build_history(request: ChatRequest) -> list[BaseMessage]:
 	history: list[BaseMessage] = []
 	for message in request.messages:
 		if message.role == "user" and message.images:
@@ -76,6 +71,17 @@ def chat(request: ChatRequest) -> ChatResponse:
 			history.append(HumanMessage(content=message.content))
 		else:
 			history.append(AIMessage(content=message.content))
+	return history
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+	return {"status": "ok"}
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat(request: ChatRequest) -> ChatResponse:
+	history = _build_history(request)
 
 	try:
 		answer = ask_llm(history)
@@ -83,3 +89,15 @@ def chat(request: ChatRequest) -> ChatResponse:
 		raise HTTPException(status_code=503, detail=str(error)) from error
 
 	return ChatResponse(answer=answer)
+
+
+@app.post("/chat/stream")
+def chat_stream(request: ChatRequest) -> StreamingResponse:
+	history = _build_history(request)
+
+	try:
+		tokens = stream_llm(history)
+	except ValueError as error:
+		raise HTTPException(status_code=503, detail=str(error)) from error
+
+	return StreamingResponse(tokens, media_type="text/plain")
