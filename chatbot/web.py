@@ -12,7 +12,6 @@ from chatbot.config import MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE
 load_dotenv()
 
 API_URL = os.getenv("CHATBOT_API_URL", "http://127.0.0.1:8000").rstrip("/")
-MODEL = os.getenv("LITELLM_MODEL", "Model not configured")
 IMAGE_TYPES = ["png", "jpg", "jpeg", "webp", "gif"]
 MIME_BY_EXTENSION = {
 	"png": "image/png",
@@ -173,11 +172,21 @@ def get_error_detail(error: httpx.HTTPStatusError) -> str:
 	return error.response.text or str(error)
 
 
-def stream_answer(messages: list[dict]):
+@st.cache_data(ttl=300)
+def get_available_models() -> list[str]:
+	response = httpx.get(f"{API_URL}/models", timeout=10)
+	response.raise_for_status()
+	models = response.json()
+	if not isinstance(models, list) or not all(isinstance(model, str) for model in models):
+		raise ValueError("The API returned an invalid model list.")
+	return models
+
+
+def stream_answer(messages: list[dict], model: str):
 	with httpx.stream(
 		"POST",
 		f"{API_URL}/chat/stream",
-		json={"messages": messages},
+		json={"messages": messages, "model": model},
 		timeout=120,
 	) as response:
 		try:
@@ -199,8 +208,16 @@ if "api_status" not in st.session_state:
 with st.sidebar:
 	st.markdown("<div class='eyebrow'>AI CHAT / WORKSPACE</div>", unsafe_allow_html=True)
 	st.markdown("## Session")
-	st.caption("MODEL")
-	st.code(MODEL, language=None)
+	try:
+		available_models = get_available_models()
+	except (httpx.HTTPError, ValueError) as error:
+		available_models = []
+		st.error(f"Could not load models: {error}")
+
+	if available_models:
+		selected_model = st.selectbox("Model", available_models)
+	else:
+		selected_model = None
 	st.caption("API ENDPOINT")
 	st.code(API_URL, language=None)
 
@@ -253,6 +270,7 @@ if submission := st.chat_input(
 	"Write a message or attach images...",
 	accept_file="multiple",
 	file_type=IMAGE_TYPES,
+	disabled=selected_model is None,
 ):
 	text = submission.text.strip()
 	files = list(submission.files)
@@ -273,7 +291,7 @@ if submission := st.chat_input(
 		with st.chat_message("assistant"):
 			with st.spinner("Thinking..."):
 				try:
-					answer = st.write_stream(stream_answer(st.session_state.messages))
+					answer = st.write_stream(stream_answer(st.session_state.messages, selected_model))
 				except httpx.HTTPStatusError as error:
 					st.session_state.messages.pop()
 					st.error(f"API error: {get_error_detail(error)}")

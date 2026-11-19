@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config import MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE
-from .llm import ask_llm, stream_llm
+from .llm import ask_llm, list_available_models, stream_llm
 
 app = FastAPI(title="AI Chat API")
 
@@ -50,6 +50,7 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
 	messages: list[ChatMessage] = Field(min_length=1)
+	model: str | None = Field(default=None, min_length=1)
 
 
 class ChatResponse(BaseModel):
@@ -79,12 +80,20 @@ def health() -> dict[str, str]:
 	return {"status": "ok"}
 
 
+@app.get("/models", response_model=list[str])
+def models() -> list[str]:
+	try:
+		return list_available_models()
+	except ValueError as error:
+		raise HTTPException(status_code=503, detail=str(error)) from error
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
 	history = _build_history(request)
 
 	try:
-		answer = ask_llm(history)
+		answer = ask_llm(history, request.model)
 	except ValueError as error:
 		raise HTTPException(status_code=503, detail=str(error)) from error
 
@@ -96,7 +105,7 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 	history = _build_history(request)
 
 	try:
-		tokens = stream_llm(history)
+		tokens = stream_llm(history, request.model)
 	except ValueError as error:
 		raise HTTPException(status_code=503, detail=str(error)) from error
 

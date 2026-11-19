@@ -10,7 +10,7 @@ From the project directory, install the dependencies:
 python -m pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and set `LITELLM_BASE_URL`, `LITELLM_API_KEY` and `LITELLM_MODEL`. Do not share this file or commit it to Git.
+Copy `.env.example` to `.env` and set `LITELLM_BASE_URL` and `LITELLM_API_KEY`. The web interface loads available models from LiteLLM and lets you choose one in the sidebar. `LITELLM_MODEL` is not needed for the web interface; set it only when using the terminal client, which does not have a model selector. Do not share `.env` or commit it to Git.
 
 ## Project layout
 
