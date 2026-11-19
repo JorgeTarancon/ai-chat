@@ -4,13 +4,15 @@ import base64
 import binascii
 from typing import Literal
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
+from openai import OpenAIError
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .config import MAX_IMAGE_BYTES, MAX_IMAGES_PER_MESSAGE
-from .llm import ask_llm, list_available_models, stream_llm
+from .llm import ask_llm, generate_image, list_available_models, list_image_models, stream_llm
 
 app = FastAPI(title="AI Chat API")
 
@@ -57,6 +59,16 @@ class ChatResponse(BaseModel):
 	answer: str
 
 
+class ImageRequest(BaseModel):
+	prompt: str = Field(min_length=1, max_length=4000)
+	model: str = Field(min_length=1)
+
+
+class ImageResponse(BaseModel):
+	data: str
+	mime_type: str = "image/png"
+
+
 def _build_history(request: ChatRequest) -> list[BaseMessage]:
 	history: list[BaseMessage] = []
 	for message in request.messages:
@@ -86,6 +98,24 @@ def models() -> list[str]:
 		return list_available_models()
 	except ValueError as error:
 		raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.get("/models/image", response_model=list[str])
+def image_models() -> list[str]:
+	try:
+		return list_image_models()
+	except ValueError as error:
+		raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.post("/images/generate", response_model=ImageResponse)
+def images_generate(request: ImageRequest) -> ImageResponse:
+	try:
+		return ImageResponse(data=generate_image(request.prompt, request.model))
+	except ValueError as error:
+		raise HTTPException(status_code=503, detail=str(error)) from error
+	except (OpenAIError, httpx.HTTPError) as error:
+		raise HTTPException(status_code=502, detail=f"Image generation failed: {error}") from error
 
 
 @app.post("/chat", response_model=ChatResponse)

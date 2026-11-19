@@ -182,11 +182,33 @@ def get_available_models() -> list[str]:
 	return models
 
 
+@st.cache_data(ttl=300)
+def get_image_models() -> list[str]:
+	try:
+		response = httpx.get(f"{API_URL}/models/image", timeout=15)
+		response.raise_for_status()
+		return [model for model in response.json() if isinstance(model, str)]
+	except (httpx.HTTPError, ValueError):
+		return []
+
+
+def generate_image(prompt: str, model: str) -> str:
+	response = httpx.post(
+		f"{API_URL}/images/generate",
+		json={"prompt": prompt, "model": model},
+		timeout=180,
+	)
+	response.raise_for_status()
+	return response.json()["data"]
+
+
 def stream_answer(messages: list[dict], model: str):
+	# Generated images stay local; the chat API only accepts images on user turns.
+	payload = [{"role": m["role"], "content": m["content"], "images": m.get("images", []) if m["role"] == "user" else []} for m in messages]
 	with httpx.stream(
 		"POST",
 		f"{API_URL}/chat/stream",
-		json={"messages": messages, "model": model},
+		json={"messages": payload, "model": model},
 		timeout=120,
 	) as response:
 		try:
@@ -216,8 +238,12 @@ with st.sidebar:
 
 	if available_models:
 		selected_model = st.selectbox("Model", available_models)
+		is_image_model = selected_model in get_image_models()
+		if is_image_model:
+			st.caption("Image generation model: your messages are used as prompts.")
 	else:
 		selected_model = None
+		is_image_model = False
 	st.caption("API ENDPOINT")
 	st.code(API_URL, language=None)
 
@@ -288,20 +314,44 @@ if submission := st.chat_input(
 		with st.chat_message("user"):
 			render_message(new_message)
 
-		with st.chat_message("assistant"):
-			with st.spinner("Thinking..."):
-				try:
-					answer = st.write_stream(stream_answer(st.session_state.messages, selected_model))
-				except httpx.HTTPStatusError as error:
+		if is_image_model:
+			with st.chat_message("assistant"):
+				if not text:
 					st.session_state.messages.pop()
-					st.error(f"API error: {get_error_detail(error)}")
-				except (httpx.RequestError, ValueError) as error:
-					st.session_state.messages.pop()
-					st.error(f"Could not reach the chatbot API: {error}")
+					st.error("Write a text prompt to generate an image.")
 				else:
-					answer = answer.strip() if isinstance(answer, str) else "".join(answer).strip()
-					if answer:
-						st.session_state.messages.append({"role": "assistant", "content": answer})
-					else:
+					with st.spinner("Generating image..."):
+						try:
+							image_data = generate_image(text, selected_model)
+						except httpx.HTTPStatusError as error:
+							st.session_state.messages.pop()
+							st.error(f"API error: {get_error_detail(error)}")
+						except (httpx.RequestError, KeyError, ValueError) as error:
+							st.session_state.messages.pop()
+							st.error(f"Could not generate the image: {error}")
+						else:
+							result = {
+								"role": "assistant",
+								"content": f"[Image generated from prompt: {text}]",
+								"images": [{"data": image_data, "mime_type": "image/png"}],
+							}
+							st.session_state.messages.append(result)
+							st.image(base64.b64decode(image_data))
+		else:
+			with st.chat_message("assistant"):
+				with st.spinner("Thinking..."):
+					try:
+						answer = st.write_stream(stream_answer(st.session_state.messages, selected_model))
+					except httpx.HTTPStatusError as error:
 						st.session_state.messages.pop()
-						st.error("The chatbot API returned an invalid response.")
+						st.error(f"API error: {get_error_detail(error)}")
+					except (httpx.RequestError, ValueError) as error:
+						st.session_state.messages.pop()
+						st.error(f"Could not reach the chatbot API: {error}")
+					else:
+						answer = answer.strip() if isinstance(answer, str) else "".join(answer).strip()
+						if answer:
+							st.session_state.messages.append({"role": "assistant", "content": answer})
+						else:
+							st.session_state.messages.pop()
+							st.error("The chatbot API returned an invalid response.")
