@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import json
 from typing import Literal
 
 import httpx
@@ -139,4 +140,8 @@ def chat_stream(request: ChatRequest) -> StreamingResponse:
 	except ValueError as error:
 		raise HTTPException(status_code=503, detail=str(error)) from error
 
-	return StreamingResponse(tokens, media_type="text/plain")
+	def events():
+		for event in tokens:
+			yield json.dumps(event) + "\n"
+
+	return StreamingResponse(events(), media_type="application/x-ndjson")
