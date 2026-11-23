@@ -1,6 +1,7 @@
 """Streamlit chat interface backed by the local FastAPI service."""
 
 import base64
+import json
 import os
 
 import httpx
@@ -112,6 +113,10 @@ st.markdown(
 	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] li::marker {
 		color: var(--ink) !important;
 	}
+	[data-testid="stChatMessage"] [data-testid="stCaptionContainer"],
+	[data-testid="stChatMessage"] [data-testid="stCaptionContainer"] p {
+		color: #64746b !important;
+	}
 	/* Keep streamed text fully opaque instead of Streamlit's fade-in while it arrives. */
 	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"],
 	[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] * {
@@ -202,7 +207,7 @@ def generate_image(prompt: str, model: str) -> str:
 	return response.json()["data"]
 
 
-def stream_answer(messages: list[dict], model: str):
+def stream_answer(messages: list[dict], model: str, usage: dict):
 	# Generated images stay local; the chat API only accepts images on user turns.
 	payload = [{"role": m["role"], "content": m["content"], "images": m.get("images", []) if m["role"] == "user" else []} for m in messages]
 	with httpx.stream(
@@ -217,9 +222,14 @@ def stream_answer(messages: list[dict], model: str):
 			# Buffer the body so get_error_detail can read the JSON detail.
 			error.response.read()
 			raise
-		for chunk in response.iter_text():
-			if chunk:
-				yield chunk
+		for line in response.iter_lines():
+			if not line:
+				continue
+			event = json.loads(line)
+			if event.get("type") == "content":
+				yield event["content"]
+			elif event.get("type") == "usage":
+				usage.update(event)
 
 
 if "messages" not in st.session_state:
@@ -272,6 +282,12 @@ def render_message(message: dict) -> None:
 		st.image(base64.b64decode(image["data"]), width=240)
 	if message["content"]:
 		st.markdown(message["content"])
+	if message["role"] == "assistant" and "total_tokens" in message:
+		call_tokens = message["total_tokens"]
+		chat_tokens = message.get("chat_tokens")
+		call_label = f"{call_tokens:,}" if call_tokens is not None else "unavailable"
+		chat_label = f"{chat_tokens:,}" if chat_tokens is not None else "unavailable"
+		st.caption(f"This call: {call_label} tokens · Chat total: {chat_label} tokens")
 
 
 def encode_images(files: list) -> list[dict[str, str]]:
@@ -340,8 +356,9 @@ if submission := st.chat_input(
 		else:
 			with st.chat_message("assistant"):
 				with st.spinner("Thinking..."):
+					usage = {}
 					try:
-						answer = st.write_stream(stream_answer(st.session_state.messages, selected_model))
+						answer = st.write_stream(stream_answer(st.session_state.messages, selected_model, usage))
 					except httpx.HTTPStatusError as error:
 						st.session_state.messages.pop()
 						st.error(f"API error: {get_error_detail(error)}")
@@ -351,7 +368,27 @@ if submission := st.chat_input(
 					else:
 						answer = answer.strip() if isinstance(answer, str) else "".join(answer).strip()
 						if answer:
-							st.session_state.messages.append({"role": "assistant", "content": answer})
+							previous_calls = [
+								message.get("total_tokens")
+								for message in st.session_state.messages
+								if message["role"] == "assistant" and "total_tokens" in message
+							]
+							call_tokens = usage.get("total_tokens")
+							chat_tokens = (
+								sum(previous_calls) + call_tokens
+								if call_tokens is not None and all(tokens is not None for tokens in previous_calls)
+								else None
+							)
+							result = {
+								"role": "assistant",
+								"content": answer,
+								"total_tokens": call_tokens,
+								"chat_tokens": chat_tokens,
+							}
+							st.session_state.messages.append(result)
+							call_label = f"{call_tokens:,}" if call_tokens is not None else "unavailable"
+							chat_label = f"{chat_tokens:,}" if chat_tokens is not None else "unavailable"
+							st.caption(f"This call: {call_label} tokens · Chat total: {chat_label} tokens")
 						else:
 							st.session_state.messages.pop()
 							st.error("The chatbot API returned an invalid response.")

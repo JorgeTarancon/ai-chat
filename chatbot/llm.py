@@ -74,13 +74,18 @@ def generate_image(prompt: str, model: str) -> str:
 	raise ValueError("The model returned no image.")
 
 
-def _build_chat_model(model: str | None = None) -> ChatOpenAI:
+def _build_chat_model(model: str | None = None, *, stream_usage: bool = False) -> ChatOpenAI:
 	api_key, base_url = _get_api_settings()
 	selected_model = (model or os.getenv("LITELLM_MODEL", "")).strip()
 	if not selected_model:
 		raise ValueError("Set LITELLM_MODEL in .env.")
 
-	return ChatOpenAI(model=selected_model, api_key=api_key, base_url=base_url)
+	return ChatOpenAI(
+		model=selected_model,
+		api_key=api_key,
+		base_url=base_url,
+	stream_usage=stream_usage,
+	)
 
 
 def ask_llm(messages: list[BaseMessage], model: str | None = None) -> str:
@@ -93,14 +98,29 @@ def ask_llm(messages: list[BaseMessage], model: str | None = None) -> str:
 	return answer.strip()
 
 
-def stream_llm(messages: list[BaseMessage], model: str | None = None) -> Iterator[str]:
+def stream_llm(messages: list[BaseMessage], model: str | None = None) -> Iterator[dict[str, str | int | None]]:
 	# Build the model eagerly so missing config raises before streaming starts.
-	chat_model = _build_chat_model(model)
+	chat_model = _build_chat_model(model, stream_usage=True)
 
-	def _tokens() -> Iterator[str]:
+	def _tokens() -> Iterator[dict[str, str | int | None]]:
+		usage = None
 		for chunk in chat_model.stream(messages):
 			content = chunk.content
 			if isinstance(content, str) and content:
-				yield content
+				yield {"type": "content", "content": content}
+			if chunk.usage_metadata:
+				usage = chunk.usage_metadata
+
+		input_tokens = usage.get("input_tokens") if usage else None
+		output_tokens = usage.get("output_tokens") if usage else None
+		total_tokens = usage.get("total_tokens") if usage else None
+		if total_tokens is None and input_tokens is not None and output_tokens is not None:
+			total_tokens = input_tokens + output_tokens
+		yield {
+			"type": "usage",
+			"input_tokens": input_tokens,
+			"output_tokens": output_tokens,
+			"total_tokens": total_tokens,
+		}
 
 	return _tokens()
